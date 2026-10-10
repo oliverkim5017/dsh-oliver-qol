@@ -5,6 +5,8 @@ Personal quality-of-life features for the [DeepSeek Harness](https://github.com/
 | Feature | State | What it does |
 |---|---|---|
 | `session-delete` | implemented | Permanently deletes a stored session (log, projection cache, workspace accounting) from the session row menu, cascading into its subagent child sessions |
+| `extend-settings` | implemented | Adds an **Extend settings** tab (last) to the settings page; it declares the `settings.extend-settings.item` list slot every QoL setting row registers into |
+| `permission-default` | implemented | First row of that tab: picks the default permission mode of newly created sessions (`permission.defaultPreset`, applies to every workspace), Full access included, written immediately without a confirmation dialog |
 
 ## Compatibility
 
@@ -56,7 +58,7 @@ pnpm build         # tsc host half -> lib/, esbuild browser half -> lib/client.j
 
 `lib/` is not committed. The client bundle is one CJS artifact wrapped in `window.__ModuleLoader__.load({ id: 'dsh-oliver-qol', factory })`; platform modules (`react`, `react/jsx-runtime`, `@deepseek-ai/dsh-client-ui-primitives`, `@deepseek-ai/dsh-client-store`) stay external and resolve through the injected `require`.
 
-Adding a feature: create `src/features/<name>/` (with its own `client/` half when it has UI), then add one line to `src/features/index.ts` and one to `src/client/index.ts`. Keep features independent — share code only through a `src/shared/` module that at least two features actually use.
+Adding a feature: create `src/features/<name>/` (with its own `client/` half when it has UI), then add one line to `src/features/index.ts` and one to `src/client/index.ts`. A client-only feature skips `src/features/index.ts` and adds only its client line. A setting row registers one entry into the `settings.extend-settings.item` slot declared by `extend-settings` — the slot key (and nothing else) is the contract between the hub and the row. Keep features independent — share code only through a `src/shared/` module that at least two features actually use.
 
 ## Manual acceptance (needs a dsh restart)
 
@@ -68,6 +70,7 @@ After `dsh plugin --profile web add link:...` and a restart of `dsh web`:
 4. Delete the session that is currently open: it is stopped and released first; expect the conversation view to clear.
 5. Delete an archived session from the archived filter.
 6. Check `$DSH_HOME/storages/session_projcache` no longer holds rows for the deleted ids, and that workspace accounting (`$DSH_HOME/storages/workspace.json`) dropped them.
+7. Open Settings and select **Extend settings** (last tab): the **Default permission mode** row lists the host presets. Pick **Full access** — it applies without a confirmation dialog, and a session created afterwards starts in Full access. Sessions created earlier keep their mode (switch one with `/permission`).
 
 ## Known limitations
 
