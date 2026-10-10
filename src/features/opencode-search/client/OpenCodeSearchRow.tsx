@@ -1,12 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Input, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, Menu, Switch, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { Translate } from '../../../client/context.js'
-import { OPENCODE_SEARCH_MODEL_SUGGESTIONS } from './models.js'
+import { opencodeSearchModelOptions } from './models.js'
 import type { OpencodeSearchRowState } from './opencode-search.js'
-
-/** Id base of the model input's suggestion list. */
-const MODEL_LIST_ID = 'oliver-qol-opencode-search-models'
 
 /** Row column layout. */
 const ROW_STYLE = { display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px 0' } as const
@@ -58,20 +55,13 @@ export interface OpencodeSearchRowProps extends Omit<OpencodeSearchRowInjected, 
 export function OpencodeSearchRow(props: OpencodeSearchRowProps) {
   const { load, setEnabled, setModel, setUseOpencodeProxy, useRow, t } = props
   const state = useRow(snapshot => snapshot)
-  const [draft, setDraft] = useState(state.model)
+  const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => { load() }, [load])
-  useEffect(() => { setDraft(state.model) }, [state.model])
   const saving = state.status === 'saving'
   const selectable = state.status === 'ready' || saving
   const locked = !state.writable || saving
-  const commitModel = (): void => {
-    const value = draft.trim()
-    if (value.length === 0) {
-      setDraft(state.model)
-      return
-    }
-    setModel(value)
-  }
+  const modelItems: readonly MenuItem[] = opencodeSearchModelOptions(state.model)
+    .map(model => ({ id: model, label: model }))
   return (
     <div style={ROW_STYLE}>
       <div style={TITLE_STYLE}>{t('title')}</div>
@@ -92,18 +82,29 @@ export function OpencodeSearchRow(props: OpencodeSearchRowProps) {
               </div>
               <div style={CONTROL_STYLE}>
                 <span style={LABEL_STYLE}>{t('modelLabel')}</span>
-                <Input
-                  value={draft}
-                  list={MODEL_LIST_ID}
-                  disabled={locked}
-                  aria-label={t('modelLabel')}
-                  onChange={event => { setDraft(event.target.value) }}
-                  onBlur={commitModel}
-                  onKeyDown={event => { if (event.key === 'Enter') commitModel() }}
+                <Menu
+                  open={menuOpen}
+                  anchor={(
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={locked}
+                      aria-haspopup="menu"
+                      aria-expanded={menuOpen}
+                      aria-label={t('modelLabel')}
+                      onClick={() => { setMenuOpen(open => !open) }}
+                    >
+                      {state.model}
+                    </Button>
+                  )}
+                  items={modelItems}
+                  selectedId={state.model}
+                  onSelect={(id: string) => {
+                    setMenuOpen(false)
+                    setModel(id)
+                  }}
+                  onClose={() => { setMenuOpen(false) }}
                 />
-                <datalist id={MODEL_LIST_ID}>
-                  {OPENCODE_SEARCH_MODEL_SUGGESTIONS.map(model => <option key={model} value={model} />)}
-                </datalist>
               </div>
               <div style={CONTROL_STYLE}>
                 <Switch

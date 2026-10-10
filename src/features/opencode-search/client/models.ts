@@ -35,3 +35,17 @@ export const OPENCODE_SEARCH_MODEL_SUGGESTIONS: readonly string[] = Object.freez
   'qwen3.8-max',
   'step-5-preview-free',
 ])
+
+/**
+ * The dropdown options for one current value: the catalog suggestions in
+ * order, with an unlisted current model (typed into the config by hand)
+ * prepended so it stays selectable and marked as selected.
+ * @param current - the model id currently configured.
+ * @returns the ordered option ids.
+ */
+export function opencodeSearchModelOptions(current: string): readonly string[] {
+  if (current.length === 0 || OPENCODE_SEARCH_MODEL_SUGGESTIONS.includes(current)) {
+    return OPENCODE_SEARCH_MODEL_SUGGESTIONS
+  }
+  return [current, ...OPENCODE_SEARCH_MODEL_SUGGESTIONS]
+}
