@@ -5,6 +5,24 @@ import type { Translate } from '../../../client/context.js'
 import { opencodeSearchModelOptions } from './models.js'
 import type { OpencodeSearchRowState } from './opencode-search.js'
 
+/** Class the injected stylesheet caps; `listClassName` is the only style hook reaching the list. */
+const MODEL_MENU_CLASS = 'oliver-qol-opencode-search-model-menu'
+/** Id guard so repeated mounts inject the stylesheet once. */
+const MODEL_MENU_STYLE_ID = 'oliver-qol-opencode-search-model-menu-style'
+/** Cap the catalog dropdown; the Menu default only limits it to the viewport height. */
+const MODEL_MENU_CSS = `.${MODEL_MENU_CLASS}{max-height:300px;overflow-y:auto;overscroll-behavior:contain;}`
+
+/** Inject the dropdown cap once per document. */
+function useModelMenuStyle(): void {
+  useEffect(() => {
+    if (document.getElementById(MODEL_MENU_STYLE_ID) !== null) return
+    const style = document.createElement('style')
+    style.id = MODEL_MENU_STYLE_ID
+    style.textContent = MODEL_MENU_CSS
+    document.head.append(style)
+  }, [])
+}
+
 /** Row column layout. */
 const ROW_STYLE = { display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px 0' } as const
 /** Row title. */
@@ -57,6 +75,7 @@ export function OpencodeSearchRow(props: OpencodeSearchRowProps) {
   const state = useRow(snapshot => snapshot)
   const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => { load() }, [load])
+  useModelMenuStyle()
   const saving = state.status === 'saving'
   const selectable = state.status === 'ready' || saving
   const locked = !state.writable || saving
@@ -99,6 +118,8 @@ export function OpencodeSearchRow(props: OpencodeSearchRowProps) {
                   )}
                   items={modelItems}
                   selectedId={state.model}
+                  dense
+                  listClassName={MODEL_MENU_CLASS}
                   onSelect={(id: string) => {
                     setMenuOpen(false)
                     setModel(id)
