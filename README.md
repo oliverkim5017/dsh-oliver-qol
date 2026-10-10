@@ -7,10 +7,11 @@ Personal quality-of-life features for the [DeepSeek Harness](https://github.com/
 | `session-delete` | implemented | Permanently deletes a stored session (log, projection cache, workspace accounting) from the session row menu, cascading into its subagent child sessions |
 | `extend-settings` | implemented | Adds an **Extend settings** tab (last) to the settings page; it declares the `settings.extend-settings.item` list slot every QoL setting row registers into |
 | `permission-default` | implemented | First row of that tab: picks the default permission mode of newly created sessions (`permission.defaultPreset`, applies to every workspace), Full access included, written immediately without a confirmation dialog |
+| `opencode-search` | implemented | Second row of that tab: routes the built-in `web_search` tool through OpenCode Go — endpoint, key reference, and proxy follow the `dsh-opencode-go` plugin settings, and the auxiliary search model is pickable. Off by default; while off it delegates to the built-in DeepSeek search provider |
 
 ## Compatibility
 
-Built against dsh `0.1.7-alpha.2`. dsh APIs are pre-stable, so this plugin pins the exact `@deepseek-ai/*` versions it was developed with; expect to update them together with dsh.
+Built against dsh `0.2.0-rc.2`. dsh APIs are pre-stable, so this plugin pins the exact `@deepseek-ai/*` versions it was developed with; expect to update them together with dsh.
 
 ## Install
 
@@ -31,7 +32,7 @@ allowBuilds:
   dsh-oliver-qol: true
 ```
 
-Restart dsh after adding, updating, or removing the plugin. The bundle patch (`cordis.patch.yml`) mounts exactly one row: `id: oliver-qol`, `name: dsh-oliver-qol`.
+Restart dsh after adding, updating, or removing the plugin. The bundle patch (`cordis.patch.yml`) mounts one row (`id: oliver-qol`, `name: dsh-oliver-qol`) and points the web seam's `searchProvider` at the `opencode-go` provider this bundle registers.
 
 ## Configuration
 
@@ -42,9 +43,21 @@ Restart dsh after adding, updating, or removing the plugin. The bundle patch (`c
       sessionsRoot: <path>          # default: dshHomePath('sessions')
       quiescenceTimeoutMs: 15000    # default: 15000
       quiescencePollMs: 200         # default: 200
+    opencodeSearch:
+      enabled: false                # default: delegate to the built-in search provider
+      model: deepseek-v4.1-flash    # auxiliary Messages model; any OpenCode Go id
+      useOpencodeProxy: true        # default: follow dsh-opencode-go's proxyURL
 ```
 
 `sessionDelete.sessionsRoot` must match the `root` of the profile's `session-persistence-jsonl` row (`$DSH_HOME/sessions` by default). If a deployment moves that root, set both.
+
+`opencodeSearch` is a live section: the **Extend settings** row writes it without a restart. The auxiliary search request reads, per search, the `baseURL`, `apiKeyEnv`, and `proxyURL` that the `opencode-go` profile row (the `dsh-opencode-go` plugin) currently resolves, and resolves that credential reference through the credentials service — the same `OPENCODE_API_KEY` the chat route uses. Without that plugin the documented defaults apply (`https://opencode.ai/zen/go/v1`, `OPENCODE_API_KEY`, no proxy).
+
+### How the search selection works
+
+The bundle patch points the web seam at this provider (`web.searchProvider: opencode-go`). While the Extend-settings row is off, the provider delegates every search to the built-in `deepseek-official` provider, so installing this plugin changes nothing until the feature is enabled. A deployment can drop the `web` override from `cordis.patch.yml` (or its own profile patch) to ignore the provider entirely.
+
+One search is one auxiliary model turn against the OpenCode Go endpoint with the native `web_search_20250305` server tool — latency plus tokens count against the Go usage quota. `deepseek-v4.1-flash` is verified end-to-end through this provider (10 structured results, ~10k input tokens); other Go model ids are selectable but unverified for server-side search. OpenCode Go requires `x-opencode-session` on every request: the provider sends the initiating conversation's id and, outside a conversation, one stable per-instance id.
 
 ## Development
 
@@ -71,6 +84,7 @@ After `dsh plugin --profile web add link:...` and a restart of `dsh web`:
 5. Delete an archived session from the archived filter.
 6. Check `$DSH_HOME/storages/session_projcache` no longer holds rows for the deleted ids, and that workspace accounting (`$DSH_HOME/storages/workspace.json`) dropped them.
 7. Open Settings and select **Extend settings** (last tab): the **Default permission mode** row lists the host presets. Pick **Full access** — it applies without a confirmation dialog, and a session created afterwards starts in Full access. Sessions created earlier keep their mode (switch one with `/permission`).
+8. In the same tab, enable **OpenCode Go web search**, keep `deepseek-v4.1-flash`, and ask the model to search the web: the tool result lists sources instead of the `DEEPSEEK_API_KEY` error. Disable the toggle and search again: the search falls back to the built-in provider (behavior and errors as before).
 
 ## Known limitations
 
@@ -78,3 +92,6 @@ After `dsh plugin --profile web add link:...` and a restart of `dsh web`:
 - A session written by another dsh process at the same time fails loudly (`session-delete/busy`) on Windows file locks; retry after that process stops.
 - Deleting the currently open session relies on the shipped archive-driven release of the main view; if the client does not release it in time, the request answers `busy` and can be retried.
 - The JSONL storage layout (project directory + encoded session segment) is the only format coupling; it lives in `src/features/session-delete/jsonl-layout.ts` and `removal.ts` and must be re-checked on dsh upgrades.
+- `opencode-search` delegates to the built-in provider by reading the web service's provider registry (`web.searchProviders`) — a dsh-internal surface pinned to the 0.2.0-rc.2 line; re-check it on upgrades. The Extend-settings row writes the `oliver-qol` profile entry, so renaming the bundle row id makes the row report `unavailable`.
+- `opencode-search` follows the `opencode-go` entry's base `apiKeyEnv` reference only; multi-account setups (`accounts`/`autoSwitch` in `dsh-opencode-go`) are not followed per search.
+- Each OpenCode search is a full auxiliary model turn against the Go quota; this provider does not append the built-in `web/deepseek-search-llm-request` session event.

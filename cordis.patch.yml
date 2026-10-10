@@ -1,5 +1,16 @@
 # dsh-oliver-qol bundle patch: mounts the plugin's host half. The browser half
 # ships through exports["./client"] and the dsh.client declaration in package.json.
+#
+# The web override points the search capability at the provider this bundle
+# registers. While the "OpenCode web search" row in Extend settings is off (the
+# default), that provider delegates to the built-in deepseek-official provider,
+# so deployments that never enable the feature keep stock search behavior. A
+# deployment can drop this override to ignore the provider entirely; unknown
+# targets in profiles without a web row are warned and skipped by the loader.
 - insert:
     - id: oliver-qol
       name: dsh-oliver-qol
+- id: web
+  name: '@deepseek-ai/dsh-web'
+  config:
+    searchProvider: opencode-go
