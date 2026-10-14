@@ -10,8 +10,32 @@ export const OPENCODE_SEARCH_SECTION = 'opencodeSearch'
 export const OPENCODE_SEARCH_CLIENT_DEFAULTS = Object.freeze({
   enabled: false,
   model: 'deepseek-v4.1-flash',
-  useOpencodeProxy: true,
+  proxyUrl: '',
+  proxyPort: '',
 } as const)
+
+/**
+ * Ports the row accepts, mirrored from the host's `buildProxyURL`. A draft the
+ * host would refuse is never written, so the row and the next search agree on
+ * what a port is.
+ */
+const PROXY_PORT_PATTERN = /^\d{1,5}$/u
+const PROXY_PORT_MIN = 1
+const PROXY_PORT_MAX = 65535
+
+/**
+ * Whether one proxy port is a value the host accepts: empty for "use the port
+ * inside the URL", otherwise a decimal 1–65535.
+ * @param raw - the port as typed.
+ * @returns whether the value may be written to the config.
+ */
+export function isValidProxyPort(raw: string): boolean {
+  const port = raw.trim()
+  if (port.length === 0) return true
+  if (!PROXY_PORT_PATTERN.test(port)) return false
+  const number = Number(port)
+  return number >= PROXY_PORT_MIN && number <= PROXY_PORT_MAX
+}
 
 /** One namespace row of the shared settings mirror. */
 export interface OpencodeSearchNamespaceRow {
@@ -36,7 +60,10 @@ export interface OpencodeSearchRowState {
   readonly writable: boolean
   readonly enabled: boolean
   readonly model: string
-  readonly useOpencodeProxy: boolean
+  /** Host the search request goes through; empty means a direct connection. */
+  readonly proxyUrl: string
+  /** Port the search request goes through; empty follows the port inside `proxyUrl`. */
+  readonly proxyPort: string
   readonly error: string | null
 }
 
@@ -61,7 +88,8 @@ export function deriveOpencodeSearchRow(mirror: OpencodeSearchMirrorSnapshot): O
     writable: view.writable,
     enabled: booleanOf(section, 'enabled', OPENCODE_SEARCH_CLIENT_DEFAULTS.enabled),
     model: stringOf(section, 'model', OPENCODE_SEARCH_CLIENT_DEFAULTS.model),
-    useOpencodeProxy: booleanOf(section, 'useOpencodeProxy', OPENCODE_SEARCH_CLIENT_DEFAULTS.useOpencodeProxy),
+    proxyUrl: stringOf(section, 'proxyUrl', OPENCODE_SEARCH_CLIENT_DEFAULTS.proxyUrl),
+    proxyPort: stringOf(section, 'proxyPort', OPENCODE_SEARCH_CLIENT_DEFAULTS.proxyPort),
     error: null,
   }
 }
@@ -96,7 +124,8 @@ function emptyState(status: OpencodeSearchRowState['status']): OpencodeSearchRow
     writable: false,
     enabled: OPENCODE_SEARCH_CLIENT_DEFAULTS.enabled,
     model: OPENCODE_SEARCH_CLIENT_DEFAULTS.model,
-    useOpencodeProxy: OPENCODE_SEARCH_CLIENT_DEFAULTS.useOpencodeProxy,
+    proxyUrl: OPENCODE_SEARCH_CLIENT_DEFAULTS.proxyUrl,
+    proxyPort: OPENCODE_SEARCH_CLIENT_DEFAULTS.proxyPort,
     error: null,
   }
 }

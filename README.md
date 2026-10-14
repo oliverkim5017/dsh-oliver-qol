@@ -7,7 +7,7 @@ Personal quality-of-life features for the [DeepSeek Harness](https://github.com/
 | `session-delete` | implemented | Permanently deletes a stored session (log, projection cache, workspace accounting) from the session row menu, cascading into its subagent child sessions |
 | `extend-settings` | implemented | Adds an **Extend settings** tab (last) to the settings page; it declares the `settings.extend-settings.item` list slot every QoL setting row registers into |
 | `permission-default` | implemented | First row of that tab: picks the default permission mode of newly created sessions (`permission.defaultPreset`, applies to every workspace), Full access included, written immediately without a confirmation dialog |
-| `opencode-search` | implemented | Second row of that tab: routes the built-in `web_search` tool through OpenCode Go — endpoint, key reference, and proxy follow the `dsh-opencode-go` plugin settings, and the auxiliary search model is pickable. Off by default; while off it delegates to the built-in DeepSeek search provider |
+| `opencode-search` | implemented | Second row of that tab: routes the built-in `web_search` tool through OpenCode Go — endpoint and key reference follow the `dsh-opencode-go` plugin settings, while the search model and the proxy address (host + port) are set in the row itself and touch nothing else. Off by default; while off it delegates to the built-in DeepSeek search provider |
 
 ## Compatibility
 
@@ -46,12 +46,15 @@ Restart dsh after adding, updating, or removing the plugin. The bundle patch (`c
     opencodeSearch:
       enabled: false                # default: delegate to the built-in search provider
       model: deepseek-v4.1-flash    # auxiliary Messages model; any OpenCode Go id
-      useOpencodeProxy: true        # default: follow dsh-opencode-go's proxyURL
+      proxyUrl: ''                  # search-only proxy host; empty connects directly
+      proxyPort: ''                 # search-only proxy port; empty keeps the URL's own
 ```
 
 `sessionDelete.sessionsRoot` must match the `root` of the profile's `session-persistence-jsonl` row (`$DSH_HOME/sessions` by default). If a deployment moves that root, set both.
 
-`opencodeSearch` is a live section: the **Extend settings** row writes it without a restart. The auxiliary search request reads, per search, the `baseURL`, `apiKeyEnv`, and `proxyURL` that the `opencode-go` profile row (the `dsh-opencode-go` plugin) currently resolves, and resolves that credential reference through the credentials service — the same `OPENCODE_API_KEY` the chat route uses. Without that plugin the documented defaults apply (`https://opencode.ai/zen/go/v1`, `OPENCODE_API_KEY`, no proxy).
+`opencodeSearch` is a live section: the **Extend settings** row writes it without a restart. Per search, the provider reads the `baseURL` and `apiKeyEnv` that the `opencode-go` profile row (the `dsh-opencode-go` plugin) currently resolves, and resolves that credential reference through the credentials service — the same `OPENCODE_API_KEY` the chat route uses. Those are the only two facts it borrows: the proxy is the row's own (`proxyUrl`/`proxyPort`), so nothing configured for chat traffic reaches a search, and nothing a search sets reaches chat. Without that plugin the documented defaults apply (`https://opencode.ai/zen/go/v1`, `OPENCODE_API_KEY`).
+
+`proxyUrl` takes a host (`127.0.0.1`), a host and port (`127.0.0.1:7890`), or a full URL with a scheme (`socks5://127.0.0.1`); a bare host is read as HTTP. `proxyPort` is a decimal 1–65535 and overrides any port inside `proxyUrl`; empty means the search uses whatever port the address carries. Both empty connects directly. The Extend-settings row commits each half on blur or Enter — one typed address is one write — and refuses a port the host would refuse, so the row and the next search cannot disagree.
 
 ### How the search selection works
 
@@ -85,6 +88,8 @@ After `dsh plugin --profile web add link:...` and a restart of `dsh web`:
 6. Check `$DSH_HOME/storages/session_projcache` no longer holds rows for the deleted ids, and that workspace accounting (`$DSH_HOME/storages/workspace.json`) dropped them.
 7. Open Settings and select **Extend settings** (last tab): the **Default permission mode** row lists the host presets. Pick **Full access** — it applies without a confirmation dialog, and a session created afterwards starts in Full access. Sessions created earlier keep their mode (switch one with `/permission`).
 8. In the same tab, enable **OpenCode Go web search**, keep `deepseek-v4.1-flash`, and ask the model to search the web: the tool result lists sources instead of the `DEEPSEEK_API_KEY` error. Disable the toggle and search again: the search falls back to the built-in provider (behavior and errors as before).
+9. With the feature enabled, type a proxy into **Search proxy** (host in the first field, port in the second, e.g. `127.0.0.1` / `7890`): the write lands when the field is left, the next search dials through it, and chat traffic is unaffected. Clear both fields and search again: the search connects directly.
+10. Type an impossible port (`0`, `99999`) into the port field and leave it: nothing is written, and the field keeps the text so it can be corrected. An address the transport cannot read (`not a url`) stays saved and makes the *next* search fail loudly, naming the address.
 
 ## Known limitations
 
@@ -94,4 +99,5 @@ After `dsh plugin --profile web add link:...` and a restart of `dsh web`:
 - The JSONL storage layout (project directory + encoded session segment) is the only format coupling; it lives in `src/features/session-delete/jsonl-layout.ts` and `removal.ts` and must be re-checked on dsh upgrades.
 - `opencode-search` delegates to the built-in provider by reading the web service's provider registry (`web.searchProviders`) — a dsh-internal surface pinned to the 0.2.0-rc.2 line; re-check it on upgrades. The Extend-settings row writes the `oliver-qol` profile entry, so renaming the bundle row id makes the row report `unavailable`.
 - `opencode-search` follows the `opencode-go` entry's base `apiKeyEnv` reference only; multi-account setups (`accounts`/`autoSwitch` in `dsh-opencode-go`) are not followed per search.
+- `opencode-search`'s proxy is its own setting: it applies to the search request only. A deployment that wants the search behind the same proxy as chat has to type that address into the new row as well — there is no "follow the OpenCode Go proxy" mode.
 - Each OpenCode search is a full auxiliary model turn against the Go quota; this provider does not append the built-in `web/deepseek-search-llm-request` session event.

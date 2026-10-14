@@ -37,7 +37,8 @@ export function registerOpencodeSearchClient(services: ClientServices): void {
           load: () => { void controller.load() },
           setEnabled: (value: boolean) => { void controller.setEnabled(value) },
           setModel: (value: string) => { void controller.setModel(value) },
-          setUseOpencodeProxy: (value: boolean) => { void controller.setUseOpencodeProxy(value) },
+          setProxyUrl: (value: string) => { void controller.setProxyUrl(value) },
+          setProxyPort: (value: string) => { void controller.setProxyPort(value) },
         }),
       }, OpencodeSearchRow)
     })

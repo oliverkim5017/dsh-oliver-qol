@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Button, Menu, Switch, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { Button, Input, Menu, Switch, type MenuItem } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { Translate } from '../../../client/context.js'
 import { opencodeSearchModelOptions } from './models.js'
@@ -47,6 +47,12 @@ const LABEL_STYLE = {
   fontSize: '13px',
   lineHeight: '20px',
 } as const
+/** Address line: label, proxy host, then its port. */
+const PROXY_ROW_STYLE = { display: 'flex', alignItems: 'center', gap: '8px' } as const
+/** Host field; the Input wrapper is a flex item here, so it carries the growth. */
+const PROXY_URL_STYLE = { flex: '1 1 240px', minWidth: '180px' } as const
+/** Port field: wide enough for five digits without stretching the row. */
+const PROXY_PORT_INPUT_STYLE = { width: '52px' } as const
 
 /** Behavior the row injects (the `hooks` compartment binds as the `useRow` hook). */
 export interface OpencodeSearchRowInjected {
@@ -54,7 +60,8 @@ export interface OpencodeSearchRowInjected {
   readonly load: () => void
   readonly setEnabled: (value: boolean) => void
   readonly setModel: (value: string) => void
-  readonly setUseOpencodeProxy: (value: boolean) => void
+  readonly setProxyUrl: (value: string) => void
+  readonly setProxyPort: (value: string) => void
 }
 
 /** Composed props of the OpenCode web search row. */
@@ -65,15 +72,19 @@ export interface OpencodeSearchRowProps extends Omit<OpencodeSearchRowInjected, 
 
 /**
  * Extend-settings item: routes the built-in `web_search` tool through OpenCode
- * Go while enabled, and picks the model and proxy behavior of the auxiliary
- * search turn.
+ * Go while enabled, and picks the auxiliary search model plus the proxy
+ * address of that search request alone.
  * @param props - injected behavior, row hook, and locale seat.
  * @returns the row.
  */
 export function OpencodeSearchRow(props: OpencodeSearchRowProps) {
-  const { load, setEnabled, setModel, setUseOpencodeProxy, useRow, t } = props
+  const { load, setEnabled, setModel, setProxyUrl, setProxyPort, useRow, t } = props
   const state = useRow(snapshot => snapshot)
   const [menuOpen, setMenuOpen] = useState(false)
+  // The proxy halves are text fields: they commit on blur or Enter, so one
+  // typed address is one settings write rather than one per keystroke.
+  const url = useDraft(state.proxyUrl, setProxyUrl)
+  const port = useDraft(state.proxyPort, setProxyPort)
   useEffect(() => { load() }, [load])
   useModelMenuStyle()
   const saving = state.status === 'saving'
@@ -84,9 +95,7 @@ export function OpencodeSearchRow(props: OpencodeSearchRowProps) {
   return (
     <div style={ROW_STYLE}>
       <div style={TITLE_STYLE}>{t('title')}</div>
-      <div style={NOTE_STYLE} role={state.error === null ? undefined : 'alert'}>
-        {state.error ?? t('description')}
-      </div>
+      <div style={NOTE_STYLE}>{t('description')}</div>
       {selectable
         ? (
             <>
@@ -127,23 +136,100 @@ export function OpencodeSearchRow(props: OpencodeSearchRowProps) {
                   onClose={() => { setMenuOpen(false) }}
                 />
               </div>
-              <div style={CONTROL_STYLE}>
-                <Switch
-                  checked={state.useOpencodeProxy}
-                  onChange={setUseOpencodeProxy}
-                  label={t('proxyLabel')}
-                  disabled={locked}
-                />
+              <div style={PROXY_ROW_STYLE}>
                 <span style={LABEL_STYLE}>{t('proxyLabel')}</span>
+                <Input
+                  type="text"
+                  style={PROXY_URL_STYLE}
+                  value={url.text}
+                  placeholder={t('proxyUrlPlaceholder')}
+                  aria-label={t('proxyUrlLabel')}
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={locked}
+                  onChange={event => { url.edit(event.currentTarget.value) }}
+                  onBlur={url.commit}
+                  onKeyDown={event => { commitOnEnter(event, url.commit) }}
+                />
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  // `Input` forwards `style` to the native field, so the port
+                  // field is sized here and its wrapper stays at that width.
+                  style={PROXY_PORT_INPUT_STYLE}
+                  value={port.text}
+                  placeholder={t('proxyPortPlaceholder')}
+                  aria-label={t('proxyPortLabel')}
+                  autoComplete="off"
+                  spellCheck={false}
+                  maxLength={5}
+                  disabled={locked}
+                  onChange={event => { port.edit(event.currentTarget.value) }}
+                  onBlur={port.commit}
+                  onKeyDown={event => { commitOnEnter(event, port.commit) }}
+                />
               </div>
             </>
           )
         : <div style={NOTE_STYLE}>{transientText(state, t)}</div>}
+      {state.error === null
+        ? null
+        : <div style={NOTE_STYLE} role="alert">{t('errorPrefix')}{state.error}</div>}
       <div style={NOTE_STYLE}>{t('modelHint')}</div>
       <div style={NOTE_STYLE}>{t('proxyHint')}</div>
       <div style={NOTE_STYLE}>{state.enabled ? t('hint') : t('disabledHint')}</div>
     </div>
   )
+}
+
+/** The address editor: the draft text plus the two gestures that commit it. */
+interface DraftField {
+  readonly text: string
+  readonly edit: (value: string) => void
+  readonly commit: () => void
+}
+
+/**
+ * Follow one configured string as editable text.
+ *
+ * The draft is written when the field is left (blur, Enter) rather than per
+ * keystroke, so a half-typed address never reaches the config and one typed
+ * address is one settings write. A value the store reports that this field did
+ * not itself edit — a fresh read, another window's write — reseeds the draft;
+ * the value this field just wrote does not, so a slow round-trip cannot
+ * overwrite what is being typed. A refused write leaves the draft alone, so
+ * committing the same text again retries it.
+ * @param value - the configured value.
+ * @param commit - writes one trimmed, changed value.
+ * @returns the draft text and its gestures.
+ */
+function useDraft(value: string, commit: (next: string) => void): DraftField {
+  const [text, setText] = useState(value)
+  const seen = useRef(value)
+  useEffect(() => {
+    if (value === seen.current) return
+    seen.current = value
+    setText(value)
+  }, [value])
+  return {
+    text,
+    edit: setText,
+    commit: () => {
+      // Reflect the trimmed value immediately: the store catches up when the
+      // write answers, and a refused write keeps its text visible to correct.
+      const next = text.trim()
+      setText(next)
+      if (next === seen.current) return
+      commit(next)
+    },
+  }
+}
+
+/** Commit one field when Enter leaves it, so the write happens once. */
+function commitOnEnter(event: KeyboardEvent<HTMLInputElement>, commit: () => void): void {
+  if (event.key !== 'Enter') return
+  event.currentTarget.blur()
+  commit()
 }
 
 function transientText(state: OpencodeSearchRowState, t: Translate): string | null {

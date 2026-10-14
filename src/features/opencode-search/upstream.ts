@@ -5,18 +5,23 @@ import { ProxyAgent, Socks5ProxyAgent, type Dispatcher } from 'undici'
 export const OPENCODE_SEARCH_UPSTREAM_DEFAULTS = Object.freeze({
   baseURL: 'https://opencode.ai/zen/go/v1',
   apiKeyEnv: 'OPENCODE_API_KEY',
-  proxyURL: '',
 } as const)
 
-/** Endpoint, credential reference, and proxy the search request follows. */
+/**
+ * Endpoint and credential reference the search request follows. The transport
+ * is deliberately absent: the search sets its own proxy, so nothing the
+ * OpenCode Go plugin configures for chat traffic reaches this request.
+ */
 export interface OpencodeSearchUpstream {
   readonly baseURL: string
   readonly apiKeyEnv: string
-  readonly proxyURL: string
 }
 
 /** The conventional profile row id of the OpenCode Go provider plugin. */
 export const OPENCODE_GO_ENTRY_ID = 'opencode-go'
+
+/** A proxy port is a decimal the transport can dial. */
+const PROXY_PORT_PATTERN = /^\d{1,5}$/u
 
 /**
  * Resolve the endpoint facts from the live OpenCode Go settings entry.
@@ -47,15 +52,46 @@ export function resolveUpstream(settings: unknown): OpencodeSearchUpstream {
   return {
     baseURL: trimBaseURL(stringField(value, 'baseURL')) ?? OPENCODE_SEARCH_UPSTREAM_DEFAULTS.baseURL,
     apiKeyEnv: stringField(value, 'apiKeyEnv') ?? OPENCODE_SEARCH_UPSTREAM_DEFAULTS.apiKeyEnv,
-    proxyURL: stringField(value, 'proxyURL') ?? '',
   }
 }
 
 /**
- * Build the undici dispatcher for one proxy address. Empty input means a
- * direct connection; unsupported or unparseable input fails the search
- * loudly rather than silently connecting directly.
- * @param proxyURL - the proxy address configured for OpenCode Go.
+ * Join the Extend-settings proxy halves into the one address `undici` accepts.
+ * The URL half carries the host and may carry its own scheme, port,
+ * credentials, or path; the port half replaces whatever port it carries. A
+ * scheme-less host is read as HTTP, because an address without one is not a
+ * URL at all. Both halves empty means a direct connection.
+ * @param proxyUrl - the configured host, or `scheme://host`, or empty.
+ * @param proxyPort - the configured port, or empty to keep the URL's own.
+ * @returns the proxy address, or `''` for a direct connection.
+ * @throws {WebError} `WEB_PROVIDER_ERROR` when the port is not a decimal 1–65535.
+ */
+export function buildProxyURL(proxyUrl: string, proxyPort: string): string {
+  const host = proxyUrl.trim()
+  if (host.length === 0) return ''
+  const port = proxyPort.trim()
+  if (port.length > 0 && !PROXY_PORT_PATTERN.test(port)) {
+    throw new WebError(`invalid web search proxy port: ${JSON.stringify(port)}`, 'WEB_PROVIDER_ERROR')
+  }
+  if (port.length > 0 && (Number(port) < 1 || Number(port) > 65535)) {
+    throw new WebError(`web search proxy port is out of range: ${JSON.stringify(port)}`, 'WEB_PROVIDER_ERROR')
+  }
+  // An address with no scheme is a bare host, and undici needs a URL there.
+  const address = host.includes('://') ? host : `http://${host}`
+  const url = URL.canParse(address) ? new URL(address) : undefined
+  if (url === undefined) {
+    throw new WebError(`invalid web search proxy address: ${JSON.stringify(host)}`, 'WEB_PROVIDER_ERROR')
+  }
+  if (port.length > 0) url.port = port
+  return url.toString()
+}
+
+/**
+ * Build the undici dispatcher for one proxy address, as `buildProxyURL`
+ * returns it. Empty input means a direct connection; unsupported or
+ * unparseable input fails the search loudly rather than silently connecting
+ * directly.
+ * @param proxyURL - the web search proxy address.
  * @returns the dispatcher, or undefined for a direct connection.
  * @throws {WebError} `WEB_PROVIDER_ERROR` on an unparseable URL or unsupported scheme.
  */
@@ -66,11 +102,11 @@ export function proxyDispatcherOf(proxyURL: string): Dispatcher | undefined {
   try {
     url = new URL(raw)
   } catch {
-    throw new WebError(`invalid OpenCode Go proxy URL: ${JSON.stringify(raw)}`, 'WEB_PROVIDER_ERROR')
+    throw new WebError(`invalid web search proxy URL: ${JSON.stringify(raw)}`, 'WEB_PROVIDER_ERROR')
   }
   if (url.protocol === 'socks5:') return new Socks5ProxyAgent(raw)
   if (url.protocol === 'http:' || url.protocol === 'https:') return new ProxyAgent(raw)
-  throw new WebError(`unsupported OpenCode Go proxy scheme: ${url.protocol}`, 'WEB_PROVIDER_ERROR')
+  throw new WebError(`unsupported web search proxy scheme: ${url.protocol}`, 'WEB_PROVIDER_ERROR')
 }
 
 function stringField(value: Record<string, unknown>, key: string): string | undefined {

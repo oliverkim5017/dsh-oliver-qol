@@ -1,6 +1,6 @@
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import {
-  OPENCODE_SEARCH_CLIENT_DEFAULTS, OPENCODE_SEARCH_SETTINGS_NS, deriveOpencodeSearchRow,
+  OPENCODE_SEARCH_CLIENT_DEFAULTS, OPENCODE_SEARCH_SETTINGS_NS, deriveOpencodeSearchRow, isValidProxyPort,
   type OpencodeSearchMirrorSnapshot, type OpencodeSearchNamespaceRow, type OpencodeSearchRowState,
 } from './opencode-search.js'
 
@@ -19,7 +19,7 @@ export type SettingsWriteOutcome =
   | { readonly ok: false, readonly message: string }
 
 /** One editable field of the OpenCode search section. */
-export type OpencodeSearchField = 'enabled' | 'model' | 'useOpencodeProxy'
+export type OpencodeSearchField = 'enabled' | 'model' | 'proxyUrl' | 'proxyPort'
 
 /** Write one field of the OpenCode search section into the profile entry. */
 export interface OpencodeSearchWriter {
@@ -38,7 +38,8 @@ const INITIAL_STATE: OpencodeSearchRowState = {
   writable: false,
   enabled: OPENCODE_SEARCH_CLIENT_DEFAULTS.enabled,
   model: OPENCODE_SEARCH_CLIENT_DEFAULTS.model,
-  useOpencodeProxy: OPENCODE_SEARCH_CLIENT_DEFAULTS.useOpencodeProxy,
+  proxyUrl: OPENCODE_SEARCH_CLIENT_DEFAULTS.proxyUrl,
+  proxyPort: OPENCODE_SEARCH_CLIENT_DEFAULTS.proxyPort,
   error: null,
 }
 
@@ -46,12 +47,21 @@ const INITIAL_STATE: OpencodeSearchRowState = {
  * Row controller of the OpenCode web search setting: it follows the shared
  * settings mirror and writes one path-addressed mutation per edit through the
  * shared settings write path.
+ *
+ * Edits are serialized rather than dropped. Each write is revision-fenced
+ * against the row it read, so two overlapping writes would make the older one
+ * refuse as stale; queueing them keeps the order the user typed and still lets
+ * the last edit, not the first, decide what lands.
  */
 export class OpencodeSearchController {
   /** Snapshot the tab consumes through the slot's selector hook. */
   readonly store: SnapshotStore<OpencodeSearchRowState>
   private unsubscribe: (() => void) | undefined
-  private saving = false
+  /** Edits waiting for the write in flight, in the order they were made. */
+  private readonly pending: { readonly field: OpencodeSearchField, readonly value: unknown }[] = []
+  private writing = false
+  /** Message of the refusal the drain has not resolved yet, if any. */
+  private failure: string | null = null
   private disposed = false
 
   /**
@@ -94,12 +104,26 @@ export class OpencodeSearchController {
   }
 
   /**
-   * Persist the proxy toggle.
-   * @param value - the wished state.
+   * Persist the proxy host the search request goes through; empty input means
+   * a direct connection.
+   * @param value - the host or URL typed into the URL field.
    * @returns settlement once the write answered and the row reflects it.
    */
-  async setUseOpencodeProxy(value: boolean): Promise<void> {
-    await this.write('useOpencodeProxy', value)
+  async setProxyUrl(value: string): Promise<void> {
+    await this.write('proxyUrl', value.trim())
+  }
+
+  /**
+   * Persist the proxy port, checked against the values the host accepts — a
+   * port the host would refuse is never written, so the row and the next
+   * search cannot disagree.
+   * @param value - the port typed into the port field; empty follows the URL.
+   * @returns settlement once the write answered and the row reflects it.
+   */
+  async setProxyPort(value: string): Promise<void> {
+    const port = value.trim()
+    if (!isValidProxyPort(port)) return
+    await this.write('proxyPort', port)
   }
 
   /** Stop following the mirror; later publishes leave the snapshot alone. */
@@ -110,28 +134,57 @@ export class OpencodeSearchController {
   }
 
   private async write(field: OpencodeSearchField, value: unknown): Promise<void> {
-    if (this.disposed || this.saving) return
-    const state = this.store.getSnapshot()
-    if (!state.writable || state.status !== 'ready') return
-    if (state[field] === value) return
-    const row = this.entryRow()
-    if (row === undefined) return
-    this.saving = true
-    this.store.set({ ...state, status: 'saving', error: null })
-    let outcome: SettingsWriteOutcome
-    try {
-      outcome = await this.deps.writer.setField(field, value, row.revision)
-    } catch (error) {
-      outcome = { ok: false, message: error instanceof Error ? error.message : String(error) }
-    }
-    this.saving = false
     if (this.disposed) return
-    if (!outcome.ok) {
-      this.store.set({ ...this.store.getSnapshot(), status: 'error', error: outcome.message })
-      return
+    this.pending.push({ field, value })
+    if (this.writing) return
+    this.writing = true
+    try {
+      await this.drain()
+    } finally {
+      this.writing = false
+      // Whatever the drain left behind, the row reports the mirror's value and
+      // its status again — including the edits the drain dropped.
+      if (this.pending.length === 0) this.derive()
     }
-    this.deps.mirror.acceptView(outcome.view)
-    this.derive()
+  }
+
+  /**
+   * Drain the edit queue, one mutation at a time. An edit is dropped only when
+   * the row cannot accept any write at all, or when it repeats the value the
+   * row already holds; a refusal surfaces in the row and leaves the rest of the
+   * queue intact, because each edit is fenced against the revision this loop
+   * just read.
+   */
+  private async drain(): Promise<void> {
+    while (!this.disposed) {
+      const edit = this.pending.shift()
+      if (edit === undefined) return
+      const state = this.store.getSnapshot()
+      if (!state.writable || state.status === 'unavailable' || state.status === 'loading') continue
+      if (state[edit.field] === edit.value) continue
+      const row = this.entryRow()
+      if (row === undefined) continue
+      this.store.set({ ...state, status: 'saving', error: null })
+      let outcome: SettingsWriteOutcome
+      try {
+        outcome = await this.deps.writer.setField(edit.field, edit.value, row.revision)
+      } catch (error) {
+        outcome = { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+      if (this.disposed) return
+      if (!outcome.ok) {
+        this.failure = outcome.message
+        this.store.set({ ...this.store.getSnapshot(), status: 'error', error: outcome.message })
+        continue
+      }
+      // Read after the fold, always: the mirror may publish the accepted view
+      // through its subscribers while this write still counted as in flight,
+      // and a row left on the value the write replaced makes the next edit read
+      // that stale value and refuse itself as unchanged.
+      this.failure = null
+      this.deps.mirror.acceptView(outcome.view)
+      this.derive()
+    }
   }
 
   private entryRow(): OpencodeSearchNamespaceRow | undefined {
@@ -140,7 +193,12 @@ export class OpencodeSearchController {
   }
 
   private derive(): void {
-    if (this.disposed || this.saving) return
-    this.store.set(deriveOpencodeSearchRow(this.deps.mirror.getSnapshot()))
+    if (this.disposed) return
+    // The mirror may publish mid-drain; its answer must not erase a refusal the
+    // user has not resolved, nor report a write as finished while the queue
+    // still holds edits.
+    if (this.failure !== null) return
+    const row = deriveOpencodeSearchRow(this.deps.mirror.getSnapshot())
+    this.store.set(this.writing ? { ...row, status: 'saving' } : row)
   }
 }

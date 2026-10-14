@@ -3,18 +3,21 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { WebSearchProvider } from '@deepseek-ai/dsh-web'
 import { fetch as undiciFetch } from 'undici'
 import type { HostFeature } from '../types.js'
-import { resolveOpencodeSearchConfig } from './config.js'
+import {
+  resolveOpencodeSearchConfig, resolveOpencodeSearchProxy, type OpencodeSearchConfig,
+} from './config.js'
 import {
   DELEGATE_SEARCH_PROVIDER_ID, OPENCODE_SEARCH_PROVIDER_ID, OpencodeSearchProvider,
   createSearchSessionId,
   type SearchRequestInit, type SearchResponseFace,
 } from './provider.js'
-import { proxyDispatcherOf, resolveUpstream } from './upstream.js'
+import { buildProxyURL, proxyDispatcherOf, resolveUpstream } from './upstream.js'
 
 /**
  * OpenCode web search: serves the built-in `web_search` tool through the
- * OpenCode Go endpoint and key, with the auxiliary model chosen in the
- * Extend settings tab. Disabled, it delegates to the built-in provider.
+ * OpenCode Go endpoint and key, with the auxiliary model and the request's own
+ * proxy chosen in the Extend settings tab. Disabled, it delegates to the
+ * built-in provider.
  */
 export const opencodeSearchFeature: HostFeature = {
   name: 'opencodeSearch',
@@ -25,14 +28,19 @@ export const opencodeSearchFeature: HostFeature = {
       const fallbackSessionId = createSearchSessionId()
       const provider = new OpencodeSearchProvider({
         resolveOptions: () => {
-          const config = resolveOpencodeSearchConfig(root.opencodeSearch?.get())
+          const section: OpencodeSearchConfig | undefined = root.opencodeSearch?.get()
+          const config = resolveOpencodeSearchConfig(section)
+          // Only the endpoint and the key reference follow the OpenCode Go
+          // plugin; the proxy is this feature's own, so nothing configured for
+          // chat traffic leaks into web search (or the other way around).
           const upstream = resolveUpstream(featureCtx.get('settings'))
+          const proxy = resolveOpencodeSearchProxy(section)
           return {
             enabled: config.enabled,
             model: config.model,
             baseURL: upstream.baseURL,
             apiKeyEnv: upstream.apiKeyEnv,
-            proxyURL: config.useOpencodeProxy ? upstream.proxyURL : '',
+            proxyURL: buildProxyURL(proxy.proxyUrl, proxy.proxyPort),
           }
         },
         resolveApiKey: reference => resolveApiKey(featureCtx, reference),
