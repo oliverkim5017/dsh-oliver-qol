@@ -14,7 +14,7 @@ export const OPENCODE_SEARCH_MAX_TOKENS = 4096
 /** Upper bound on native `web_search` server-tool uses per request. */
 export const OPENCODE_SEARCH_MAX_USES = 5
 /** Attribution header sent on every request. */
-export const OPENCODE_SEARCH_USER_AGENT = 'dsh-oliver-qol/0.1.0'
+export const OPENCODE_SEARCH_USER_AGENT = 'dsh-oliver-qol/0.2.0'
 /** Prefix of the fallback `x-opencode-session` id, required by the OpenCode Go gateway. */
 export const OPENCODE_SEARCH_SESSION_PREFIX = 'dsh-oliver-qol-'
 
