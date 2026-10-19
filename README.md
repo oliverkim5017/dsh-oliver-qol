@@ -11,7 +11,7 @@ Personal quality-of-life features for the [DeepSeek Harness](https://github.com/
 
 ## Compatibility
 
-Built against dsh `0.2.0-rc.2`. dsh APIs are pre-stable, so this plugin pins the exact `@deepseek-ai/*` versions it was developed with; expect to update them together with dsh.
+Built against dsh `0.2.0-rc.2`. dsh APIs are pre-stable, so the manifest declares open-ended floors (`>=0.2.0-rc.2`) instead of pins: a dsh upgrade must not silently drop the bundle, and a real API break surfaces as an error to fix rather than as a plugin that vanished.
 
 ## Install
 
