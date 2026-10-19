@@ -3,5 +3,10 @@ lib/
 coverage/
 *.tsbuildinfo
 .idea/
-docs/
 tests/
+
+# docs/ is ignored except the distribution policy, which later agents and
+# maintainers must see. Git cannot re-include a file under an ignored
+# directory, so the directory itself is re-included first.
+docs/*
+!docs/DISTRIBUTION.md

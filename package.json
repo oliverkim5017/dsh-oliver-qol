@@ -1,7 +1,6 @@
 {
   "name": "dsh-oliver-qol",
   "version": "0.2.0",
-  "private": true,
   "description": "Personal quality-of-life features for the DeepSeek Harness",
   "type": "module",
   "license": "MIT",
@@ -13,6 +12,10 @@
     "./package.json": "./package.json"
   },
   "files": ["lib", "cordis.patch.yml", "README.md"],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "engines": {
     "node": "^22.19.0 || >=24.0.0",
     "dsh": ">=0.2.0-rc.2"
@@ -39,7 +42,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "oxlint src tests scripts",
-    "prepare": "pnpm run build"
+    "prepare": "node scripts/build.mjs",
+    "prepublishOnly": "node scripts/build.mjs && vitest run"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-brand": ">=0.2.0-rc.2",

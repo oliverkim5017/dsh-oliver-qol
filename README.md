@@ -18,21 +18,25 @@ Built against dsh `0.2.0-rc.2`. dsh APIs are pre-stable, so the manifest declare
 The plugin is a dsh bundle: its `package.json` declares `dsh.bundle` (host half) and `dsh.client` (browser half).
 
 ```bat
-:: from GitHub (needs a built artifact; pnpm runs `prepare`)
-dsh plugin --profile web add github:oliverkim5017/dsh-oliver-qol
+:: from npm (the supported path — the published tarball already contains lib/)
+dsh plugin --profile web add dsh-oliver-qol
 
 :: from a local checkout (development loop)
 dsh plugin --profile web add link:D:\2Code\dsh-oliver-qol
 ```
 
-Git installs run this package's `prepare` script, so the profile's `pnpm-workspace.yaml` must allow it:
-
-```yaml
-allowBuilds:
-  dsh-oliver-qol: true
-```
+Install it as an **npm package**, never as a `github:` dependency. A git install fetches source, so pnpm rebuilds it on every install, needs a working `pnpm` on `PATH`, needs an `allowBuilds` entry keyed by the exact commit URL, and leaves the lockfile pinned to the old commit — enough to make the plugin manager report a failure even though the install succeeded. The published package ships `lib/`, so none of that applies. See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) for the full evidence.
 
 Restart dsh after adding, updating, or removing the plugin. The bundle patch (`cordis.patch.yml`) mounts one row (`id: oliver-qol`, `name: dsh-oliver-qol`) and points the web seam's `searchProvider` at the `opencode-go` provider this bundle registers.
+
+## Release
+
+```bat
+npm version minor   :: patch | minor | major
+npm publish         :: prepublishOnly rebuilds lib/ and runs the tests
+```
+
+`lib/` is gitignored and built at publish time; it is **not** committed.
 
 ## Configuration
 
