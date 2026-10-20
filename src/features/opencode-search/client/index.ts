@@ -9,8 +9,8 @@ import { OpencodeSearchRow, type OpencodeSearchRowInjected } from './OpenCodeSea
 const REQUIRED_SERVICES = ['configForms', 'remote.settings'] as const
 /** Item id inside the extend-settings tab. */
 const ROW_ID = 'opencode-search'
-/** Second row of the tab, below the default-permission row. */
-const ROW_ORDER = 1
+/** The tab's only setting row. */
+const ROW_ORDER = 0
 
 /**
  * Register the OpenCode web search row: once the settings services are

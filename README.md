@@ -6,8 +6,7 @@ Personal quality-of-life features for the [DeepSeek Harness](https://github.com/
 |---|---|---|
 | `session-delete` | implemented | Permanently deletes a stored session (log, projection cache, workspace accounting) from the session row menu, cascading into its subagent child sessions |
 | `extend-settings` | implemented | Adds an **Extend settings** tab (last) to the settings page; it declares the `settings.extend-settings.item` list slot every QoL setting row registers into |
-| `permission-default` | implemented | First row of that tab: picks the default permission mode of newly created sessions (`permission.defaultPreset`, applies to every workspace), Full access included, written immediately without a confirmation dialog |
-| `opencode-search` | implemented | Second row of that tab: routes the built-in `web_search` tool through OpenCode Go — endpoint and key reference follow the `dsh-opencode-go` plugin settings, while the search model and the proxy address (host + port) are set in the row itself and touch nothing else. Off by default; while off it delegates to the built-in DeepSeek search provider |
+| `opencode-search` | implemented | The row in that tab: routes the built-in `web_search` tool through OpenCode Go — endpoint and key reference follow the `dsh-opencode-go` plugin settings, while the search model and the proxy address (host + port) are set in the row itself and touch nothing else. Off by default; while off it delegates to the built-in DeepSeek search provider |
 
 ## Compatibility
 
@@ -90,10 +89,9 @@ After `dsh plugin --profile web add link:...` and a restart of `dsh web`:
 4. Delete the session that is currently open: it is stopped and released first; expect the conversation view to clear.
 5. Delete an archived session from the archived filter.
 6. Check `$DSH_HOME/storages/session_projcache` no longer holds rows for the deleted ids, and that workspace accounting (`$DSH_HOME/storages/workspace.json`) dropped them.
-7. Open Settings and select **Extend settings** (last tab): the **Default permission mode** row lists the host presets. Pick **Full access** — it applies without a confirmation dialog, and a session created afterwards starts in Full access. Sessions created earlier keep their mode (switch one with `/permission`).
-8. In the same tab, enable **OpenCode Go web search**, keep `deepseek-v4.1-flash`, and ask the model to search the web: the tool result lists sources instead of the `DEEPSEEK_API_KEY` error. Disable the toggle and search again: the search falls back to the built-in provider (behavior and errors as before).
-9. With the feature enabled, type a proxy into **Search proxy** (host in the first field, port in the second, e.g. `127.0.0.1` / `7890`): the write lands when the field is left, the next search dials through it, and chat traffic is unaffected. Clear both fields and search again: the search connects directly.
-10. Type an impossible port (`0`, `99999`) into the port field and leave it: nothing is written, and the field keeps the text so it can be corrected. An address the transport cannot read (`not a url`) stays saved and makes the *next* search fail loudly, naming the address.
+7. Open Settings and select **Extend settings** (last tab), enable **OpenCode Go web search**, keep `deepseek-v4.1-flash`, and ask the model to search the web: the tool result lists sources instead of the `DEEPSEEK_API_KEY` error. Disable the toggle and search again: the search falls back to the built-in provider (behavior and errors as before).
+8. With the feature enabled, type a proxy into **Search proxy** (host in the first field, port in the second, e.g. `127.0.0.1` / `7890`): the write lands when the field is left, the next search dials through it, and chat traffic is unaffected. Clear both fields and search again: the search connects directly.
+9. Type an impossible port (`0`, `99999`) into the port field and leave it: nothing is written, and the field keeps the text so it can be corrected. An address the transport cannot read (`not a url`) stays saved and makes the *next* search fail loudly, naming the address.
 
 ## Known limitations
 

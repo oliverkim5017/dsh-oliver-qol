@@ -1,9 +1,17 @@
 {
   "name": "dsh-oliver-qol",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Personal quality-of-life features for the DeepSeek Harness",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oliverkim5017/dsh-oliver-qol.git"
+  },
+  "homepage": "https://github.com/oliverkim5017/dsh-oliver-qol#readme",
+  "bugs": {
+    "url": "https://github.com/oliverkim5017/dsh-oliver-qol/issues"
+  },
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
