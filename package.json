@@ -1,6 +1,6 @@
 {
   "name": "dsh-oliver-qol",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Personal quality-of-life features for the DeepSeek Harness",
   "type": "module",
   "license": "MIT",
