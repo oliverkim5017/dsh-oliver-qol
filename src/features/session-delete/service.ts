@@ -15,6 +15,36 @@ import {
 export interface SessionDeletionReport {
   /** Every id removed from storage, deepest first. */
   readonly deleted: readonly SessionId[]
+  /** `.agent-teams` team directories removed because their captain went with them. */
+  readonly removedTeams: readonly string[]
+  /** Task-board execution records dropped because they pinned a deleted session. */
+  readonly droppedTaskExecutions: number
+}
+
+/**
+ * Cleanup of state that only *references* a session, performed after the stored
+ * logs are gone. Both hooks are best-effort: a failure is logged and skipped,
+ * because the session the user asked to delete is already deleted.
+ */
+export interface ReferencedStateDeps {
+  /**
+   * Remove `.agent-teams` team state owned by the deleted sessions.
+   * @param deleted - every id this delete removed, deepest first.
+   * @param cwds - workspace directories those sessions ran in, deduplicated.
+   * @returns the team ids whose directory was removed.
+   */
+  readonly removeOrphanedTeamState?: (
+    deleted: readonly SessionId[],
+    cwds: readonly string[],
+  ) => Promise<readonly string[]>
+  /**
+   * Drop task-board execution records that pin a deleted session.
+   * @param deleted - string ids of every session this delete removed.
+   * @returns how many records were dropped and how many cards they belonged to.
+   */
+  readonly pruneTaskBoardReferences?: (
+    deleted: ReadonlySet<string>,
+  ) => Promise<{ readonly dropped: number, readonly touched: number }>
 }
 
 /** Everything the delete pipeline reads from the host. */
@@ -31,8 +61,17 @@ export interface SessionDeleteDeps {
   readonly storageDomain: () => unknown
   /** Activity count reported by the composed providers for one session. */
   readonly activityOf: (sessionId: SessionId) => Promise<number>
+  /**
+   * Related-state cleanup, when the composition provides it. Absent leaves the
+   * delete behaving exactly as before this seam existed.
+   */
+  readonly referencedState?: ReferencedStateDeps
   /** Diagnostics sink. */
-  readonly logger: { warn(message: string): void }
+  readonly logger: {
+    warn(message: string): void
+    /** Optional progress line; absent compositions lose only the success trace. */
+    info?(message: string): void
+  }
   /** Wait one poll interval. */
   readonly sleep: (milliseconds: number) => Promise<void>
   /** Clock in milliseconds. */
@@ -118,9 +157,73 @@ export class SessionDeleteService {
       await deleteProjectionCacheRecord(this.deps.storageDomain(), id, this.deps.logger.warn)
     }
     await clearWorkspaceAccounting(workspaceRegistry, deleted, this.deps.logger.warn)
+    const { removedTeams, droppedTaskExecutions } =
+      await this.cleanReferencedState(deleted, snapshots)
 
     if (failure !== undefined) throw failure
-    return { deleted }
+    return { deleted, removedTeams, droppedTaskExecutions }
+  }
+
+  /**
+   * Drop the state that merely *references* the removed sessions.
+   *
+   * Runs after the stored logs are gone, on the ids actually removed — a partial
+   * delete must not strand references to sessions it left in place. Each hook is
+   * isolated: one failing cleanup never stops the other, and neither can fail the
+   * delete itself.
+   * @param deleted - every id removed from storage, deepest first.
+   * @param snapshots - the persistence snapshot the plan was built from.
+   * @returns what the hooks removed.
+   */
+  private async cleanReferencedState(
+    deleted: readonly SessionId[],
+    snapshots: readonly SessionPersistenceSnapshot[],
+  ): Promise<{ removedTeams: readonly string[], droppedTaskExecutions: number }> {
+    const state = this.deps.referencedState
+    if (state === undefined || deleted.length === 0) {
+      return { removedTeams: [], droppedTaskExecutions: 0 }
+    }
+    const gone = new Set(deleted.map(String))
+    const cwds: string[] = []
+    for (const snapshot of snapshots) {
+      if (!gone.has(String(snapshot.header.id))) continue
+      const cwd = snapshot.header.cwd
+      if (cwd !== undefined && cwd.length > 0) cwds.push(cwd)
+    }
+
+    let removedTeams: readonly string[] = []
+    if (state.removeOrphanedTeamState !== undefined) {
+      try {
+        removedTeams = await state.removeOrphanedTeamState(deleted, cwds)
+        if (removedTeams.length > 0) {
+          this.deps.logger.info?.(
+            `session delete: removed ${String(removedTeams.length)} orphaned team director`
+            + `${removedTeams.length === 1 ? 'y' : 'ies'}: ${removedTeams.join(', ')}`,
+          )
+        }
+      } catch (error: unknown) {
+        this.deps.logger.warn(`team state cleanup failed: ${describeError(error)}`)
+      }
+    }
+
+    let droppedTaskExecutions = 0
+    if (state.pruneTaskBoardReferences !== undefined) {
+      try {
+        const result = await state.pruneTaskBoardReferences(gone)
+        droppedTaskExecutions = result.dropped
+        if (result.dropped > 0) {
+          this.deps.logger.info?.(
+            `session delete: dropped ${String(result.dropped)} task-board execution record`
+            + `${result.dropped === 1 ? '' : 's'} across ${String(result.touched)} card`
+            + `${result.touched === 1 ? '' : 's'}`,
+          )
+        }
+      } catch (error: unknown) {
+        this.deps.logger.warn(`task board reference cleanup failed: ${describeError(error)}`)
+      }
+    }
+
+    return { removedTeams, droppedTaskExecutions }
   }
 }
 
